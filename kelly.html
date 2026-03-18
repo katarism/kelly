@@ -231,6 +231,13 @@
     /* ── HISTORY ── */
     .history-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 20px 18px; box-shadow: 0 1px 3px rgba(0,0,0,.04); margin-bottom: 12px; animation: fadeUp .4s .18s ease both; display: none; position: relative; z-index: 1; }
     .history-card.show { display: block; }
+    .history-summ { display: flex; gap: 0; border-top: 2px solid var(--border); margin-top: 10px; padding-top: 12px; }
+    .hs-item { flex: 1; text-align: center; padding: 0 8px; border-right: 1px solid var(--border); }
+    .hs-item:last-child { border-right: none; }
+    .hs-item .si-label { font-size: 10.5px; color: var(--muted); font-family: var(--mono); letter-spacing: .5px; margin-bottom: 4px; }
+    .hs-item .si-val { font-size: 15px; font-weight: 700; font-family: var(--mono); color: var(--text); }
+    .hs-item .si-val.pos { color: var(--green); }
+    .hs-item .si-val.neg { color: var(--red); }
     .history-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; position: relative; z-index: 2; }
     .history-hdr .card-label { margin-bottom: 0; }
     .btn-clear { font-size: 11px; font-family: var(--mono); color: var(--muted); background: none; border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; cursor: pointer; transition: color .15s, border-color .15s; touch-action: manipulation; -webkit-tap-highlight-color: transparent; min-height: 36px; }
@@ -533,10 +540,10 @@
           </div>
         </div>
         <div class="pnl-row">
-          <label>本轮损益</label>
+          <label>本轮回收</label>
           <div style="flex:1">
             <div class="iw">
-              <input type="number" id="pnlInput" placeholder="正数盈利 / 负数亏损" oninput="updatePnlPreview()">
+              <input type="number" id="pnlInput" placeholder="实际收回金额" min="0" oninput="updatePnlPreview()">
               <span class="iw-unit">元</span>
             </div>
             <div id="pnlHint" style="font-size:11.5px;color:var(--muted);margin-top:4px;"></div>
@@ -581,12 +588,31 @@
           <th>起始本金</th>
           <th>策略</th>
           <th>投入金额</th>
+          <th>回收金额</th>
           <th>损益</th>
           <th>结束本金</th>
         </tr>
       </thead>
       <tbody id="historyBody"></tbody>
     </table>
+    <div class="history-summ" id="historySumm" style="display:none">
+      <div class="hs-item">
+        <div class="si-label">总投资金额</div>
+        <div class="si-val" id="summPos">—</div>
+      </div>
+      <div class="hs-item">
+        <div class="si-label">总回收金额</div>
+        <div class="si-val" id="summRec">—</div>
+      </div>
+      <div class="hs-item">
+        <div class="si-label">总损益</div>
+        <div class="si-val" id="summPnl">—</div>
+      </div>
+      <div class="hs-item">
+        <div class="si-label">损益 / 原本金</div>
+        <div class="si-val" id="summPct">—</div>
+      </div>
+    </div>
   </div>
 
   <!-- FORMULA -->
@@ -909,25 +935,25 @@ function doCommit() {
   document.getElementById('pnlPct').textContent   = pctStr;
   document.getElementById('pnlRem').textContent   = fmt(currentCapital - amt);
   document.getElementById('pnlInput').value = '';
-  document.getElementById('pnlInput').min = (-amt).toFixed(2);
-  document.getElementById('pnlHint').textContent = `亏损上限：-${fmt(amt)}（不可超过投入金额）`;
+  document.getElementById('pnlInput').min = '0';
+  document.getElementById('pnlHint').textContent = `投入 ${fmt(amt)}：回收 0 = 全部亏损，回收 ${fmt(amt)} = 保本`;
   document.getElementById('pnlPreview').className = 'pnl-preview';
   document.getElementById('nextRoundBtn').disabled = true;
 }
 
 function updatePnlPreview() {
-  let pnl = parseFloat(document.getElementById('pnlInput').value);
+  let recovered = parseFloat(document.getElementById('pnlInput').value);
   const preview = document.getElementById('pnlPreview');
-  if (!isFinite(pnl) || !pendingCommit) {
+  if (!isFinite(recovered) || recovered < 0 || !pendingCommit) {
     preview.className = 'pnl-preview';
     document.getElementById('nextRoundBtn').disabled = true;
     return;
   }
-  const minPnl = -pendingCommit.position;
-  if (pnl < minPnl) {
-    pnl = minPnl;
-    document.getElementById('pnlInput').value = pnl.toFixed(2);
+  if (recovered < 0) {
+    recovered = 0;
+    document.getElementById('pnlInput').value = '0';
   }
+  const pnl = recovered - pendingCommit.position;
   const newCap = pendingCommit.startCapital + pnl;
   document.getElementById('pvPnl').textContent = fmtPnl(pnl);
   document.getElementById('pvPnl').className   = 'pv-v' + (pnl >= 0 ? ' pos' : ' neg');
@@ -938,11 +964,10 @@ function updatePnlPreview() {
 }
 
 function doNextRound() {
-  let pnl = parseFloat(document.getElementById('pnlInput').value);
-  if (!isFinite(pnl) || !pendingCommit) return;
+  let recovered = parseFloat(document.getElementById('pnlInput').value);
+  if (!isFinite(recovered) || recovered < 0 || !pendingCommit) return;
 
-  const minPnl = -pendingCommit.position;
-  if (pnl < minPnl) pnl = minPnl;
+  const pnl = recovered - pendingCommit.position;
   const newCap = pendingCommit.startCapital + pnl;
   const roundN = getRoundN();
 
@@ -959,6 +984,7 @@ function doNextRound() {
     winProb:      pendingCommit.winProb,
     winRatio:     pendingCommit.winRatio,
     lossRatio:    pendingCommit.lossRatio,
+    recovered:    recovered,
     pnl:          pnl,
     endCapital:   newCap,
   });
@@ -1009,10 +1035,29 @@ function renderHistory() {
   const rounds = getRounds();
   const card = document.getElementById('historyCard');
   const tbody = document.getElementById('historyBody');
-  if (rounds.length === 0) { card.classList.remove('show'); return; }
+  if (rounds.length === 0) { card.classList.remove('show'); document.getElementById('historySumm').style.display = 'none'; return; }
   card.classList.add('show');
 
   drawAssetChart();
+
+  // Summary
+  const totalPos = rounds.reduce((s, r) => s + r.position, 0);
+  const totalRec = rounds.reduce((s, r) => s + (r.recovered != null ? r.recovered : r.position + r.pnl), 0);
+  const totalPnl = rounds.reduce((s, r) => s + r.pnl, 0);
+  const initCap  = rounds[0].startCapital;
+  const pctOfInit = initCap > 0 ? totalPnl / initCap * 100 : 0;
+  const summ = document.getElementById('historySumm');
+  summ.style.display = 'flex';
+  document.getElementById('summPos').textContent = fmt(totalPos);
+  const recEl = document.getElementById('summRec');
+  recEl.textContent = fmt(totalRec);
+  const pnlEl = document.getElementById('summPnl');
+  pnlEl.textContent = fmtPnl(totalPnl);
+  pnlEl.className = 'si-val' + (totalPnl >= 0 ? ' pos' : ' neg');
+  const pctEl = document.getElementById('summPct');
+  pctEl.textContent = (totalPnl >= 0 ? '+' : '') + pctOfInit.toFixed(2) + '%';
+  pctEl.className = 'si-val' + (totalPnl >= 0 ? ' pos' : ' neg');
+
   tbody.innerHTML = rounds.slice().reverse().map(r => {
     const stratClass = r.strategy || 'custom';
     const pnlClass   = r.pnl >= 0 ? 'h-pos' : 'h-neg';
@@ -1021,6 +1066,7 @@ function renderHistory() {
       <td data-label="起始本金" class="h-num">${fmt(r.startCapital)}</td>
       <td data-label="策略"><span class="h-strat ${stratClass}">${r.strategyLabel}</span></td>
       <td data-label="投入金额" class="h-num">${fmt(r.position)}</td>
+      <td data-label="回收金额" class="h-num">${r.recovered != null ? fmt(r.recovered) : '—'}</td>
       <td data-label="损益" class="${pnlClass}">${fmtPnl(r.pnl)}</td>
       <td data-label="结束本金" class="h-num">${fmt(r.endCapital)}</td>
     </tr>`;
